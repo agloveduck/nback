@@ -1,6 +1,6 @@
-function nback_experiment()
+   function nback_experiment()
     try
-        % Collect subject information
+        % Collect subject info rmation
         subjectInfo = collectSubjectInfo();
         subjectID = subjectInfo.id;
         subjectGender = subjectInfo.gender;

@@ -3,11 +3,11 @@
         % Collect subject information   
         subjectInfo = collectSubjectInfo();
         subjectID = subjectInfo.id;
-        subjectGender = subjectInfo.gender;   
+        subjectGender = subjectInfo.gender;  
         subjectAge = subjectInfo.age;
         
         % Initialize Psychtoolbox
-        PsychDefaultSetup(2);  
+        PsychDefaultSetup(2);
         Screen('Preference', 'SkipSyncTests', 1);
         
         % Screen setup
@@ -219,7 +219,7 @@ function showVASImage(window, dataDir, xCenter, yCenter)
         spacePressed = false;
         while ~spacePressed
             Screen('DrawTexture', window, vasTexture, [], [xPos, yPos, xPos+newWidth, yPos+newHeight]);
-            % DrawFormattedText(window, 'Press SPACE to continue', 'center', screenHeight - 100, [255 255 255]);
+            DrawFormattedText(window, 'Press SPACE to continue', 'center', screenHeight - 100, [255 255 255]);
             Screen('Flip', window);
             
             [~, ~, keyCode] = KbCheck;
