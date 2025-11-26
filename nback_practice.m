@@ -1,13 +1,16 @@
   function nback_practice()
-      try
-        % Collect subject information   
-        subjectInfo = collectSubjectInfo();
-        subjectID = subjectInfo.id;
-        subjectGender = subjectInfo.gender;   
-        subjectAge = subjectInfo.age;
+    try
+      % Collect subject information   
+      subjectInfo = collectSubjectInfo();   
+      subjectID =    subjectInfo.id;     
+         subjectGender = subjectInfo.gender;   
+      subjectAge = subjectInfo.age;
         
-        % Initialize Psychtoolbox
-        PsychDefaultSetup(2);  
+        % Initialize Biosemi Trigger Box (with simulation mode)
+        triggerBox = initializeTriggerBox();
+        
+        % Initialize Psychtoolbox  
+          PsychDefaultSetup(2);   
         Screen('Preference', 'SkipSyncTests', 1);
         
         % Screen setup
@@ -59,12 +62,12 @@
         % Experiment instructions - use adaptive font size
         Screen('TextSize', window, instructionFontSize);
         
-        instructions = ['Welcome to the N-back PRACTICE experiment!\n\n' ...
-                       'This is a shortened practice version (3 blocks, 20 trials each).\n\n' ...
-                       '0-back: Press LEFT arrow for target letter, RIGHT arrow for non-target.\n\n' ...
-                       '1-back: Press LEFT arrow when current matches previous, RIGHT arrow otherwise.\n\n' ...
-                       '2-back: Press LEFT arrow when current matches two trials back, RIGHT arrow otherwise.\n\n\n' ...
-                       'Press SPACE to continue.'];
+        instructions = sprintf(['Welcome to the N-back PRACTICE experiment!\n\n' ...
+                                 'This is a shortened practice version (3 blocks, 20 trials each).\n\n' ...
+                                 '0-back: Press LEFT arrow for target letter, RIGHT arrow for non-target.\n\n' ...
+                                 '1-back: Press LEFT arrow when current matches previous, RIGHT arrow otherwise.\n\n' ...
+                                 '2-back: Press LEFT arrow when current matches two trials back, RIGHT arrow otherwise.\n\n\n' ...
+                                 'Press SPACE to continue.']);
         
         DrawFormattedText(window, instructions, 'center', 'center', [255 255 255]);
         Screen('Flip', window);
@@ -77,23 +80,37 @@
         
         % Collect baseline VAS rating before experiment starts
         showVASImage(window, dataDir, xCenter, yCenter);
-        baselineVAS = getVASRatingMouse(window, xCenter, yCenter);
+        baselineVAS = getVASRatingMouse(window, xCenter, yCenter, triggerBox, 30, 31);
+        
+        % Send marker: Experiment start
+        sendTrigger(triggerBox, 1);
         
         % Main experiment loop
         for blockNum = 1:length(blockTypes)
             blockType = blockTypes(blockNum);
             
+            % Send marker: Block start (10 + blockType, e.g., 10, 11, 12 for 0-back, 1-back, 2-back)
+            sendTrigger(triggerBox, 10 + blockType);
+            
             % Block instructions with increased line spacing
             Screen('TextSize', window, instructionFontSize);
             if blockType == 0
-                blockInstructions = sprintf('0-BACK PRACTICE BLOCK\n\n\nTarget letter: %s\n\n\nPress LEFT arrow for target, RIGHT arrow for non-target.\n\n\nPress SPACE to start.', ...
-                                           targetLetter);
+                blockInstructions = sprintf(['0-BACK PRACTICE BLOCK\n\n\n' ...
+                                              'Target letter: %s\n\n\n' ...
+                                              'Press LEFT arrow for target, RIGHT arrow for non-target.\n\n\n' ...
+                                              'Press SPACE to start.'], targetLetter);
             else
                 switch blockType
                     case 1
-                        blockInstructions = '1-BACK PRACTICE BLOCK\n\n\nPress LEFT arrow when current matches previous.\n\n\nPress RIGHT arrow otherwise.\n\n\nPress SPACE to start.';
+                        blockInstructions = sprintf(['1-BACK PRACTICE BLOCK\n\n\n' ...
+                                                      'Press LEFT arrow when current matches previous.\n\n\n' ...
+                                                      'Press RIGHT arrow otherwise.\n\n\n' ...
+                                                      'Press SPACE to start.']);
                     case 2
-                        blockInstructions = '2-BACK PRACTICE BLOCK\n\n\nPress LEFT arrow when current matches two trials back.\n\n\nPress RIGHT arrow otherwise.\n\n\nPress SPACE to start.';
+                        blockInstructions = sprintf(['2-BACK PRACTICE BLOCK\n\n\n' ...
+                                                      'Press LEFT arrow when current matches two trials back.\n\n\n' ...
+                                                      'Press RIGHT arrow otherwise.\n\n\n' ...
+                                                      'Press SPACE to start.']);
                 end
             end
             
@@ -104,9 +121,9 @@
             
             % Run block - PRACTICE VERSION with 20 trials
             if blockType == 0
-                blockData = runNbackBlockPractice(window, xCenter, yCenter, blockType, letters, targetLetter);
+                blockData = runNbackBlockPractice(window, xCenter, yCenter, blockType, letters, targetLetter, triggerBox);
             else
-                blockData = runNbackBlockPractice(window, xCenter, yCenter, blockType, letters);
+                blockData = runNbackBlockPractice(window, xCenter, yCenter, blockType, letters, [], triggerBox);
             end
             
             % Show feedback after each block
@@ -115,9 +132,15 @@
             validRTs = blockData.responseTimes(~isnan(blockData.responseTimes));
             if ~isempty(validRTs)
                 avgRT = mean(validRTs) * 1000;  % Convert to milliseconds
-                feedbackMsg = sprintf('Block %d completed!\n\n\nAccuracy: %.1f%%\n\nAverage RT: %.0f ms\n\n\nPress SPACE to continue.', blockNum, accuracy, avgRT);
+                feedbackMsg = sprintf(['Block %d completed!\n\n\n' ...
+                                         'Accuracy: %.1f%%\n\n' ...
+                                         'Average RT: %.0f ms\n\n\n' ...
+                                         'Press SPACE to continue.'], blockNum, accuracy, avgRT);
             else
-                feedbackMsg = sprintf('Block %d completed!\n\n\nAccuracy: %.1f%%\n\nAverage RT: N/A\n\n\nPress SPACE to continue.', blockNum, accuracy);
+                feedbackMsg = sprintf(['Block %d completed!\n\n\n' ...
+                                         'Accuracy: %.1f%%\n\n' ...
+                                         'Average RT: N/A\n\n\n' ...
+                                         'Press SPACE to continue.'], blockNum, accuracy);
             end
             DrawFormattedText(window, feedbackMsg, 'center', 'center', [255 255 255]);
             Screen('Flip', window);
@@ -127,7 +150,10 @@
             
             % Collect VAS rating after each block
             showVASImage(window, dataDir, xCenter, yCenter);
-            vasRating = getVASRatingMouse(window, xCenter, yCenter);
+            vasRating = getVASRatingMouse(window, xCenter, yCenter, triggerBox, 40 + blockType, 50 + blockType);
+            
+            % Send marker: Block end (20 + blockType)
+            sendTrigger(triggerBox, 20 + blockType);
             
             % Save data with baseline VAS and post-block VAS
             saveBlockData(filename, subjectID, subjectGender, subjectAge, ...
@@ -138,12 +164,18 @@
         endMessage = 'Practice completed! Thank you for your participation.';
         DrawFormattedText(window, endMessage, 'center', 'center', [255 255 255]);
         Screen('Flip', window);
+        
+        % Send marker: Experiment end
+        sendTrigger(triggerBox, 255);
+        
         WaitSecs(3);
         
         % Clean up
+        closeTriggerBox(triggerBox);
         sca;
         
     catch ME
+        closeTriggerBox(triggerBox);
         sca;
         rethrow(ME);
     end
@@ -237,13 +269,13 @@ function showVASImage(window, dataDir, xCenter, yCenter)
         Screen('Close', vasTexture);
         
     catch ME
-        warning('Could not load VAS image: %s', ME.message);
-        fprintf('Tried to load image from: %s\n', vasImagePath);
+        warning('Could not load VAS image: %s',   ME.message);  
+        fpr  intf('Tried to load image from: %s', vasImagePath);
         
         % Display alternative text
         spacePressed = false;
         while ~spacePressed
-            DrawFormattedText(window, 'VAS Rating Scale\n\nPress SPACE to continue', 'center', 'center', [255 255 255]);
+            DrawFormattedText(window, sprintf('VAS Rating Scale Press SPACE to continue'), 'center', 'center', [255 255 255]);
             Screen('Flip', window);
             
             [~, ~, keyCode] = KbCheck;
@@ -259,7 +291,7 @@ function showVASImage(window, dataDir, xCenter, yCenter)
     end
 end
 
-function vasRating = getVASRatingMouse(window, xCenter, yCenter)
+function vasRating = getVASRatingMouse(window, xCenter, yCenter, triggerBox, startMarkerCode, submitMarkerCode)
     % Mouse selection for VAS rating
     
     [screenWidth, screenHeight] = Screen('WindowSize', window);
@@ -281,6 +313,11 @@ function vasRating = getVASRatingMouse(window, xCenter, yCenter)
     
     ShowCursor('Arrow');
     
+    shouldSendTrigger = nargin >= 6 && ~isempty(triggerBox) && ~isempty(startMarkerCode) && ~isempty(submitMarkerCode);
+    if shouldSendTrigger
+        sendTrigger(triggerBox, startMarkerCode);
+    end
+    
     while ~ratingSelected
         [x, y, buttons] = GetMouse(window);
         
@@ -299,6 +336,9 @@ function vasRating = getVASRatingMouse(window, xCenter, yCenter)
             % Confirm selection on mouse click
             if buttons(1)
                 ratingSelected = true;
+                if shouldSendTrigger
+                    sendTrigger(triggerBox, submitMarkerCode);
+                end
                 confirmationText = sprintf('You selected: %d', vasRating);
                 Screen('FillRect', window, [0 0 0]);
                 DrawFormattedText(window, confirmationText, 'center', 'center', [255 255 255]);
@@ -343,10 +383,10 @@ function vasRating = getVASRatingMouse(window, xCenter, yCenter)
     HideCursor();
 end
 
-function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters, targetLetter)
+function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters, targetLetter, triggerBox)
     % PRACTICE VERSION - Reduced trials
     nTrials = 20;  % Reduced from 120 to 20
-    nTargets = 4;  % Reduced from 24 to 4 (20% target rate)
+    nTargets = max(1, round(nTrials * 0.2));  % Ensure 20% target rate
     stimulusTime = 0.5;
     responseTime = 2.5;  % Response window duration
     trialDuration = 3.0;  % Fixed total duration per trial (3 seconds)
@@ -383,6 +423,14 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
         DrawFormattedText(window, stimuli{trial}, 'center', 'center', [255 255 255]);
         stimOnset = Screen('Flip', window);
         
+        % Send marker: Stimulus onset
+        % Marker code: 100 + (n*10) + isTarget
+        % 0-back non-target: 100, 0-back target: 101
+        % 1-back non-target: 110, 1-back target: 111
+        % 2-back non-target: 120, 2-back target: 121
+        markerCode = 100 + (n * 10) + isTarget(trial);
+        sendTrigger(triggerBox, markerCode);
+        
         % Combined stimulus display + response window
         responseWindowEnd = stimOnset + stimulusTime + responseTime;
         responseMade = false;
@@ -409,6 +457,8 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
                         responseTimes(trial) = GetSecs - stimOnset;
                         % Check if correct (LEFT for target)
                         correctResponses(trial) = isTarget(trial);
+                        % Send marker: Response LEFT (200 + correct/incorrect)
+                        sendTrigger(triggerBox, 200 + correctResponses(trial));
                         % Don't break - keep looping to ensure screen clears at 0.5s
                     end
                 elseif keyCode(KbName('RightArrow'))
@@ -418,6 +468,8 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
                         responseTimes(trial) = GetSecs - stimOnset;
                         % Check if correct (RIGHT for non-target)
                         correctResponses(trial) = ~isTarget(trial);
+                        % Send marker: Response RIGHT (210 + correct/incorrect)
+                        sendTrigger(triggerBox, 210 + correctResponses(trial));
                         % Don't break - keep looping to ensure screen clears at 0.5s
                     end
                 end
@@ -450,26 +502,37 @@ function [stimuli, isTarget] = generateStimulusSequence(letters, nTrials, nTarge
     stimuli = cell(1, nTrials);
     isTarget = false(1, nTrials);
     
-    % For 0-back, use specified target letter
-    if n == 0 && nargin >= 5
-        % Use provided target letter
+    if n == 0
+        if nargin < 5 || isempty(targetLetter)
+            error('Target letter must be provided for 0-back.');
+        end
+        nonTargetLetters = setdiff(letters, targetLetter, 'stable');
+        if isempty(nonTargetLetters)
+            error('Letter pool must contain non-target options for 0-back.');
+        end
     else
         targetLetter = letters(randi(length(letters)));
     end
     
-    % Generate all trials
     for i = 1:nTrials
-        stimuli{i} = letters(randi(length(letters)));
+        if n == 0
+            stimuli{i} = nonTargetLetters(randi(length(nonTargetLetters)));
+        else
+            if i > n
+                availableLetters = setdiff(letters, stimuli{i - n}, 'stable');
+                stimuli{i} = availableLetters(randi(length(availableLetters)));
+            else
+                stimuli{i} = letters(randi(length(letters)));
+            end
+        end
     end
     
-    % Insert target trials
     targetCount = 0;
     attempts = 0;
     maxAttempts = 1000;
     
     while targetCount < nTargets && attempts < maxAttempts
         if n == 0
-            % 0-back: random position with target letter
             pos = randi([1, nTrials]);
             if ~isTarget(pos)
                 stimuli{pos} = targetLetter;
@@ -477,9 +540,8 @@ function [stimuli, isTarget] = generateStimulusSequence(letters, nTrials, nTarge
                 targetCount = targetCount + 1;
             end
         else
-            % n-back: ensure valid position
-            pos = randi([n+1, nTrials]);
-            if ~isTarget(pos) && ~strcmp(stimuli{pos}, stimuli{pos-n})
+            pos = randi([n + 1, nTrials]);
+            if ~isTarget(pos) && ~strcmp(stimuli{pos}, stimuli{pos - n})
                 stimuli{pos} = stimuli{pos - n};
                 isTarget(pos) = true;
                 targetCount = targetCount + 1;
@@ -488,16 +550,15 @@ function [stimuli, isTarget] = generateStimulusSequence(letters, nTrials, nTarge
         attempts = attempts + 1;
     end
     
-    % Fill remaining targets if needed
     if targetCount < nTargets
         for i = nTrials:-1:1
             if ~isTarget(i)
                 if n == 0
                     stimuli{i} = targetLetter;
+                elseif i > n
+                    stimuli{i} = stimuli{i - n};
                 else
-                    if i > n
-                        stimuli{i} = stimuli{i - n};
-                    end
+                    continue;
                 end
                 isTarget(i) = true;
                 targetCount = targetCount + 1;
@@ -541,4 +602,189 @@ function saveBlockData(filename, subjectID, gender, age, blockType, ...
     
     % Append data to file   
     writecell(dataToWrite, filename, 'WriteMode', 'append');
+end
+
+%% ========== BIOSEMI TRIGGER BOX FUNCTIONS ==========
+
+function triggerBox = initializeTriggerBox()
+    % Initialize Biosemi Trigger Interface Box
+    % Supports both real hardware and simulation mode
+    
+    triggerBox = struct();
+    triggerBox.simulationMode = true;  % Set to false when using real hardware
+    triggerBox.port = [];
+    triggerBox.logFile = 'trigger_markers.log';
+    
+    % Create/clear log file
+    fid = fopen(triggerBox.logFile, 'w');
+    fprintf(fid, 'Timestamp,MarkerCode,Description\n');
+    fclose(fid);
+    
+    if triggerBox.simulationMode
+        fprintf('\n=== TRIGGER BOX: SIMULATION MODE ===\n');
+        fprintf('Markers will be logged to: %s\n', triggerBox.logFile);
+        fprintf('====================================\n\n');
+    else
+        % Real hardware initialization
+        try
+            % Find available serial ports
+            portList = serialportlist("available");
+            
+            if isempty(portList)
+                warning('No serial ports found. Switching to simulation mode.');
+                triggerBox.simulationMode = true;
+                return;
+            end
+            
+            % Display available ports
+            fprintf('Available serial ports:\n');
+            for i = 1:length(portList)
+                fprintf('%d: %s\n', i, portList(i));
+            end
+            
+            % You can manually specify the port here
+            % For Biosemi Trigger Box, typically something like 'COM3' (Windows) or '/dev/tty.usbserial-XXX' (Mac)
+            portName = portList(1);  % Default to first available port
+            
+            % Configure serial port for Biosemi Trigger Box
+            % Typical settings: 115200 baud, 8 data bits, no parity, 1 stop bit
+            triggerBox.port = serialport(portName, 115200);
+            configureTerminator(triggerBox.port, "CR/LF");
+            triggerBox.port.DataBits = 8;
+            triggerBox.port.Parity = 'none';
+            triggerBox.port.StopBits = 1;
+            triggerBox.port.Timeout = 1;
+            
+            % Test connection
+            pause(0.5);  % Allow port to initialize
+            
+            fprintf('\n=== TRIGGER BOX: HARDWARE MODE ===\n');
+            fprintf('Connected to: %s\n', portName);
+            fprintf('Baud rate: 115200\n');
+            fprintf('==================================\n\n');
+            
+        catch ME
+            warning('Failed to initialize hardware: %s\nSwitching to simulation mode.', ME.message);
+            triggerBox.simulationMode = true;
+            triggerBox.port = [];
+        end
+    end
+end
+
+function sendTrigger(triggerBox, markerCode)
+    % Send trigger marker to Biosemi box
+    % markerCode: integer 0-255
+    
+    timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS.FFF');
+    description = getMarkerDescription(markerCode);
+    
+    if triggerBox.simulationMode
+        % Simulation mode: log to file and console
+        fprintf('[%s] Marker %d: %s\n', timestamp, markerCode, description);
+        
+        % Log to file
+        fid = fopen(triggerBox.logFile, 'a');
+        fprintf(fid, '%s,%d,%s\n', timestamp, markerCode, description);
+        fclose(fid);
+        
+    else
+        % Real hardware: send via serial port
+        try
+            % Send marker code as byte
+            write(triggerBox.port, uint8(markerCode), 'uint8');
+            
+            % Optional: send reset code after short delay (common practice)
+            pause(0.01);  % 10ms marker duration
+            write(triggerBox.port, uint8(0), 'uint8');
+            
+            % Log to file
+            fid = fopen(triggerBox.logFile, 'a');
+            fprintf(fid, '%s,%d,%s\n', timestamp, markerCode, description);
+            fclose(fid);
+            
+        catch ME
+            warning('Failed to send trigger %d: %s', markerCode, ME.message);
+        end
+    end
+end
+
+function closeTriggerBox(triggerBox)
+    % Close trigger box connection
+    
+    if ~triggerBox.simulationMode && ~isempty(triggerBox.port)
+        try
+            % Send final reset
+            write(triggerBox.port, uint8(0), 'uint8');
+            pause(0.1);
+            
+            % Close port
+            delete(triggerBox.port);
+            fprintf('\nTrigger box connection closed.\n');
+        catch ME
+            warning('Error closing trigger box: %s', ME.message);
+        end
+    else
+        fprintf('\nSimulation mode ended. Markers logged to: %s\n', triggerBox.logFile);
+    end
+end
+
+function description = getMarkerDescription(markerCode)
+    % Get human-readable description of marker code
+    
+    switch markerCode
+        case 1
+            description = 'Experiment Start';
+        case 10
+            description = 'Block Start: 0-back';
+        case 11
+            description = 'Block Start: 1-back';
+        case 12
+            description = 'Block Start: 2-back';
+        case 20
+            description = 'Block End: 0-back';
+        case 21
+            description = 'Block End: 1-back';
+        case 22
+            description = 'Block End: 2-back';
+        case 30
+            description = 'VAS Start: Baseline';
+        case 31
+            description = 'VAS Submit: Baseline';
+        case 40
+            description = 'VAS Start: Post-block 0-back';
+        case 41
+            description = 'VAS Start: Post-block 1-back';
+        case 42
+            description = 'VAS Start: Post-block 2-back';
+        case 50
+            description = 'VAS Submit: Post-block 0-back';
+        case 51
+            description = 'VAS Submit: Post-block 1-back';
+        case 52
+            description = 'VAS Submit: Post-block 2-back';
+        case 100
+            description = 'Stimulus: 0-back non-target';
+        case 101
+            description = 'Stimulus: 0-back target';
+        case 110
+            description = 'Stimulus: 1-back non-target';
+        case 111
+            description = 'Stimulus: 1-back target';
+        case 120
+            description = 'Stimulus: 2-back non-target';
+        case 121
+            description = 'Stimulus: 2-back target';
+        case 200
+            description = 'Response: LEFT incorrect';
+        case 201
+            description = 'Response: LEFT correct';
+        case 210
+            description = 'Response: RIGHT incorrect';
+        case 211
+            description = 'Response: RIGHT correct';
+        case 255
+            description = 'Experiment End';
+        otherwise
+            description = 'Unknown marker';
+    end
 end

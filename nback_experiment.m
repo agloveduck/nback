@@ -1,23 +1,23 @@
-   function nback_experiment()
+      function nback_experiment()
     try
-        % Collect subject info rmation
+        % Collect sub  ject info rmation
         subjectInfo = collectSubjectInfo();
-        subjectID = subjectInfo.id;
-        subjectGender = subjectInfo.gender;
+           subjectID = subjectInfo.id;
+        subjectGender = subjectIn  fo.gender;
         subjectAge = subjectInfo.age;
         
-        % Initialize Psychtoolbox
+        % Initialize Psyc   htoolbox
         PsychDefaultSetup(2);
-        Screen('Preference', 'SkipSyncTests', 1);
+        Screen('Preference', 'SkipSyncTests'  , 1);
         
         % Screen setup
-        screenNumber = max(Screen('Screens'));
+        screenNumber = max(Screen('Screens   '));
         [window, windowRect] = Screen('OpenWindow', screenNumber, [0 0 0]);
-        
+          
         % Get screen dimensions
-        [screenWidth, screenHeight] = Screen('WindowSize', window);
+        [screenWidth, screenHeight] = Scr   een('WindowSize', window);
         
-        % Calculate adaptive font sizes based on screen height
+        % Calculate adaptive font sizes base d on screen height
         baseFontSize = round(screenHeight / 12);
         instructionFontSize = round(screenHeight / 30);
         
@@ -342,7 +342,7 @@ end
 function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letters, targetLetter)
     % EXPERIMENT VERSION
     nTrials = 120;
-    nTargets = 24;
+    nTargets = max(1, round(nTrials * 0.2));
     stimulusTime = 0.5;
     responseTime = 2.5;
     trialDuration = 3.0;
@@ -439,8 +439,15 @@ function [stimuli, isTarget] = generateStimulusSequence(letters, nTrials, nTarge
     stimuli = cell(1, nTrials);
     isTarget = false(1, nTrials);
     
-    if n == 0 && nargin < 5
-        error('Target letter must be provided for 0-back.');
+    nonTargetLetters = [];
+    if n == 0
+        if nargin < 5 || isempty(targetLetter)
+            error('Target letter must be provided for 0-back.');
+        end
+        nonTargetLetters = setdiff(letters, targetLetter, 'stable');
+        if isempty(nonTargetLetters)
+            error('Letter pool must contain non-target options for 0-back.');
+        end
     end
     
     % Generate all trials with non-target letters first
@@ -450,7 +457,11 @@ function [stimuli, isTarget] = generateStimulusSequence(letters, nTrials, nTarge
             possibleLetters = setdiff(letters, stimuli{i-n});
             stimuli{i} = possibleLetters(randi(length(possibleLetters)));
         else
-            stimuli{i} = letters(randi(length(letters)));
+            if n == 0
+                stimuli{i} = nonTargetLetters(randi(length(nonTargetLetters)));
+            else
+                stimuli{i} = letters(randi(length(letters)));
+            end
         end
     end
 
