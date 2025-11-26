@@ -1,11 +1,12 @@
-  function nback_practice()
+function nback_practice()
+    triggerBox = [];
     try
-      % Collect subject information   
-      subjectInfo = collectSubjectInfo();   
-      subjectID =    subjectInfo.id;     
-         subjectGender = subjectInfo.gender;   
-      subjectAge = subjectInfo.age;
-        
+        % Collect subject information
+        subjectInfo = collectSubjectInfo();
+        subjectID = subjectInfo.id;
+        subjectGender = subjectInfo.gender;
+        subjectAge = subjectInfo.age;
+
         % Initialize Biosemi Trigger Box (with simulation mode)
         triggerBox = initializeTriggerBox();
         
@@ -269,8 +270,8 @@ function showVASImage(window, dataDir, xCenter, yCenter)
         Screen('Close', vasTexture);
         
     catch ME
-        warning('Could not load VAS image: %s',   ME.message);  
-        fpr  intf('Tried to load image from: %s', vasImagePath);
+        warning('Could not load VAS image: %s', ME.message);
+        fprintf('Tried to load image from: %s\n', vasImagePath);
         
         % Display alternative text
         spacePressed = false;
@@ -611,14 +612,23 @@ function triggerBox = initializeTriggerBox()
     % Supports both real hardware and simulation mode
     
     triggerBox = struct();
-    triggerBox.simulationMode = true;  % Set to false when using real hardware
+    triggerBox.simulationMode = false;  % Set to false when using real hardware
     triggerBox.port = [];
     triggerBox.logFile = 'trigger_markers.log';
+    triggerBox.logFileId = -1;
     
     % Create/clear log file
-    fid = fopen(triggerBox.logFile, 'w');
-    fprintf(fid, 'Timestamp,MarkerCode,Description\n');
-    fclose(fid);
+    headerFileId = fopen(triggerBox.logFile, 'w');
+    if headerFileId == -1
+        error('Unable to create trigger log file: %s', triggerBox.logFile);
+    end
+    fprintf(headerFileId, 'Timestamp,MarkerCode,Description\n');
+    fclose(headerFileId);
+    
+    triggerBox.logFileId = fopen(triggerBox.logFile, 'a');
+    if triggerBox.logFileId == -1
+        error('Unable to open trigger log file for appending: %s', triggerBox.logFile);
+    end
     
     if triggerBox.simulationMode
         fprintf('\n=== TRIGGER BOX: SIMULATION MODE ===\n');
@@ -639,21 +649,27 @@ function triggerBox = initializeTriggerBox()
             % Display available ports
             fprintf('Available serial ports:\n');
             for i = 1:length(portList)
-                fprintf('%d: %s\n', i, portList(i));
+                fprintf('%d: %s\n', i, char(portList(i)));
             end
             
             % You can manually specify the port here
             % For Biosemi Trigger Box, typically something like 'COM3' (Windows) or '/dev/tty.usbserial-XXX' (Mac)
-            portName = portList(1);  % Default to first available port
+            desiredPortName = 'COM6';
+            availablePorts = cellstr(portList);
+            if any(strcmpi(availablePorts, desiredPortName))
+                portName = desiredPortName;  % Use preferred port when available
+            else
+                portName = availablePorts{1};  % Fallback to first available port
+                if ~strcmpi(portName, desiredPortName)
+                    fprintf('Desired port %s unavailable. Using %s instead.\n', desiredPortName, portName);
+                end
+            end
             
             % Configure serial port for Biosemi Trigger Box
             % Typical settings: 115200 baud, 8 data bits, no parity, 1 stop bit
-            triggerBox.port = serialport(portName, 115200);
-            configureTerminator(triggerBox.port, "CR/LF");
-            triggerBox.port.DataBits = 8;
-            triggerBox.port.Parity = 'none';
-            triggerBox.port.StopBits = 1;
-            triggerBox.port.Timeout = 1;
+            triggerBox.port = serial(portName, 'BaudRate', 115200, 'DataBits', 8, ...
+                'Parity', 'none', 'StopBits', 1, 'Timeout', 1);
+            fopen(triggerBox.port);
             
             % Test connection
             pause(0.5);  % Allow port to initialize
@@ -666,6 +682,13 @@ function triggerBox = initializeTriggerBox()
         catch ME
             warning('Failed to initialize hardware: %s\nSwitching to simulation mode.', ME.message);
             triggerBox.simulationMode = true;
+            if ~isempty(triggerBox.port)
+                try
+                    fclose(triggerBox.port);
+                    delete(triggerBox.port);
+                catch
+                end
+            end
             triggerBox.port = [];
         end
     end
@@ -678,32 +701,33 @@ function sendTrigger(triggerBox, markerCode)
     timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS.FFF');
     description = getMarkerDescription(markerCode);
     
-    if triggerBox.simulationMode
+    if triggerBox.simulationMode || isempty(triggerBox.port)
         % Simulation mode: log to file and console
         fprintf('[%s] Marker %d: %s\n', timestamp, markerCode, description);
-        
-        % Log to file
-        fid = fopen(triggerBox.logFile, 'a');
-        fprintf(fid, '%s,%d,%s\n', timestamp, markerCode, description);
-        fclose(fid);
-        
     else
         % Real hardware: send via serial port
         try
             % Send marker code as byte
-            write(triggerBox.port, uint8(markerCode), 'uint8');
+            fwrite(triggerBox.port, markerCode, 'uint8');
             
             % Optional: send reset code after short delay (common practice)
             pause(0.01);  % 10ms marker duration
-            write(triggerBox.port, uint8(0), 'uint8');
-            
-            % Log to file
-            fid = fopen(triggerBox.logFile, 'a');
-            fprintf(fid, '%s,%d,%s\n', timestamp, markerCode, description);
-            fclose(fid);
-            
+            fwrite(triggerBox.port, 0, 'uint8');
         catch ME
             warning('Failed to send trigger %d: %s', markerCode, ME.message);
+        end
+    end
+    
+    if isfield(triggerBox, 'logFileId') && triggerBox.logFileId ~= -1
+        fprintf(triggerBox.logFileId, '%s,%d,%s\n', timestamp, markerCode, description);
+        try
+            if exist('fflush', 'builtin') || exist('fflush', 'file')
+                fflush(triggerBox.logFileId);
+            else
+                fseek(triggerBox.logFileId, 0, 'cof');
+            end
+        catch
+            % If the environment does not support fflush/fseek, continue without forcing a flush
         end
     end
 end
@@ -714,10 +738,11 @@ function closeTriggerBox(triggerBox)
     if ~triggerBox.simulationMode && ~isempty(triggerBox.port)
         try
             % Send final reset
-            write(triggerBox.port, uint8(0), 'uint8');
+            fwrite(triggerBox.port, 0, 'uint8');
             pause(0.1);
             
             % Close port
+            fclose(triggerBox.port);
             delete(triggerBox.port);
             fprintf('\nTrigger box connection closed.\n');
         catch ME
@@ -725,6 +750,10 @@ function closeTriggerBox(triggerBox)
         end
     else
         fprintf('\nSimulation mode ended. Markers logged to: %s\n', triggerBox.logFile);
+    end
+    
+    if isfield(triggerBox, 'logFileId') && triggerBox.logFileId ~= -1
+        fclose(triggerBox.logFileId);
     end
 end
 

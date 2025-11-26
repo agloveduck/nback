@@ -1,21 +1,25 @@
-      function nback_experiment()
+        function nback_experiment()
+    triggerBox = [];
     try
-        % Collect sub  ject info rmation
+        % Collect subject information
         subjectInfo = collectSubjectInfo();
-           subjectID = subjectInfo.id;
-        subjectGender = subjectIn  fo.gender;
+        subjectID = subjectInfo.id;
+        subjectGender = subjectInfo.gender;
         subjectAge = subjectInfo.age;
         
-        % Initialize Psyc   htoolbox
+        % Initialize Biosemi trigger box
+        triggerBox = initializeTriggerBox();
+        
+        % Initialize Psychtoolbox
         PsychDefaultSetup(2);
         Screen('Preference', 'SkipSyncTests'  , 1);
         
         % Screen setup
-        screenNumber = max(Screen('Screens   '));
+        screenNumber = max(Screen('Screens'));  
         [window, windowRect] = Screen('OpenWindow', screenNumber, [0 0 0]);
           
         % Get screen dimensions
-        [screenWidth, screenHeight] = Scr   een('WindowSize', window);
+        [screenWidth, screenHeight] = Screen('WindowSize', window);
         
         % Calculate adaptive font sizes base d on screen height
         baseFontSize = round(screenHeight / 12);
@@ -76,11 +80,17 @@
         
         % Collect baseline VAS rating before experiment starts
         showVASImage(window, dataDir, xCenter, yCenter);
-        baselineVAS = getVASRatingMouse(window, xCenter, yCenter);
+        baselineVAS = getVASRatingMouse(window, xCenter, yCenter, triggerBox, 30, 31);
+        
+        % Send marker: Experiment start
+        sendTrigger(triggerBox, 1);
         
         % Main experiment loop
         for blockNum = 1:length(blockTypes)
             blockType = blockTypes(blockNum);
+            
+            % Send marker: Block start (10 + blockType)
+            sendTrigger(triggerBox, 10 + blockType);
             
             % Block instructions with increased line spacing
             Screen('TextSize', window, instructionFontSize);
@@ -105,29 +115,17 @@
             
             % Run block
             if blockType == 0
-                blockData = runNbackBlockExperiment(window, xCenter, yCenter, blockType, letters, targetLetter);
+                blockData = runNbackBlockExperiment(window, xCenter, yCenter, blockType, letters, targetLetter, triggerBox);
             else
-                blockData = runNbackBlockExperiment(window, xCenter, yCenter, blockType, letters);
+                blockData = runNbackBlockExperiment(window, xCenter, yCenter, blockType, letters, [], triggerBox);
             end
-            
-            % Show feedback after each block
-            Screen('TextSize', window, instructionFontSize);
-            accuracy = mean(blockData.correctResponses) * 100;
-            validRTs = blockData.responseTimes(~isnan(blockData.responseTimes));
-            if ~isempty(validRTs)
-                avgRT = mean(validRTs) * 1000;  % Convert to milliseconds
-                feedbackMsg = sprintf('Block %d completed!\n\n\nAccuracy: %.1f%%\n\nAverage RT: %.0f ms\n\n\nPress SPACE to continue.', blockNum, accuracy, avgRT);
-            else
-                feedbackMsg = sprintf('Block %d completed!\n\n\nAccuracy: %.1f%%\n\nAverage RT: N/A\n\n\nPress SPACE to continue.', blockNum, accuracy);
-            end
-            DrawFormattedText(window, feedbackMsg, 'center', 'center', [255 255 255]);
-            Screen('Flip', window);
-            Screen('TextSize', window, baseFontSize);  % Restore stimulus font size
-            KbWait();
             
             % Collect VAS rating after each block
             showVASImage(window, dataDir, xCenter, yCenter);
-            vasRating = getVASRatingMouse(window, xCenter, yCenter);
+            vasRating = getVASRatingMouse(window, xCenter, yCenter, triggerBox, 40 + blockType, 50 + blockType);
+            
+            % Send marker: Block end (20 + blockType)
+            sendTrigger(triggerBox, 20 + blockType);
             
             % Save data with baseline VAS and post-block VAS
             saveBlockData(filename, subjectID, subjectGender, subjectAge, ...
@@ -138,12 +136,18 @@
         endMessage = 'Experiment completed! Thank you for your participation.';
         DrawFormattedText(window, endMessage, 'center', 'center', [255 255 255]);
         Screen('Flip', window);
+        
+        % Send marker: Experiment end
+        sendTrigger(triggerBox, 255);
+        
         WaitSecs(3);
         
         % Clean up
+        closeTriggerBox(triggerBox);
         sca;
         
     catch ME
+        closeTriggerBox(triggerBox);
         sca;
         rethrow(ME);
     end
@@ -180,20 +184,15 @@ function subjectInfo = collectSubjectInfo()
 end
 
 function showVASImage(window, dataDir, xCenter, yCenter)
-    % VAS image path - look in current directory
     vasImagePath = 'VAS.png';
     
     try
-        % Read image
         [vasImage, ~, alpha] = imread(vasImagePath);
         
-        % Get screen dimensions
         [screenWidth, screenHeight] = Screen('WindowSize', window);
         
-        % Get image dimensions
         [imageHeight, imageWidth, ~] = size(vasImage);
         
-        % Calculate scaling to fit screen while maintaining aspect ratio
         widthRatio = (screenWidth * 0.85) / imageWidth;
         heightRatio = (screenHeight * 0.85) / imageHeight;
         scale = min(widthRatio, heightRatio);
@@ -201,11 +200,9 @@ function showVASImage(window, dataDir, xCenter, yCenter)
         newWidth = imageWidth * scale;
         newHeight = imageHeight * scale;
         
-        % Calculate position to center image
         xPos = (screenWidth - newWidth) / 2;
         yPos = (screenHeight - newHeight) / 2;
         
-        % Create texture
         if ~isempty(alpha)
             rgbaImage = cat(3, vasImage, alpha);
             vasTexture = Screen('MakeTexture', window, rgbaImage);
@@ -213,11 +210,9 @@ function showVASImage(window, dataDir, xCenter, yCenter)
             vasTexture = Screen('MakeTexture', window, vasImage);
         end
         
-        % Display image until SPACE is pressed
         spacePressed = false;
         while ~spacePressed
             Screen('DrawTexture', window, vasTexture, [], [xPos, yPos, xPos+newWidth, yPos+newHeight]);
-            DrawFormattedText(window, 'Press SPACE to continue', 'center', screenHeight - 100, [255 255 255]);
             Screen('Flip', window);
             
             [~, ~, keyCode] = KbCheck;
@@ -238,7 +233,6 @@ function showVASImage(window, dataDir, xCenter, yCenter)
         warning('Could not load VAS image: %s', ME.message);
         fprintf('Tried to load image from: %s\n', vasImagePath);
         
-        % Display alternative text
         spacePressed = false;
         while ~spacePressed
             DrawFormattedText(window, 'VAS Rating Scale\n\nPress SPACE to continue', 'center', 'center', [255 255 255]);
@@ -257,63 +251,62 @@ function showVASImage(window, dataDir, xCenter, yCenter)
     end
 end
 
-function vasRating = getVASRatingMouse(window, xCenter, yCenter)
-    % Mouse selection for VAS rating
-    
+function vasRating = getVASRatingMouse(window, xCenter, yCenter, triggerBox, startMarkerCode, submitMarkerCode)
     [screenWidth, screenHeight] = Screen('WindowSize', window);
     
-    % Adaptive font size for VAS
     vasFontSize = round(screenHeight / 25);
     vasFontSize = max(20, min(40, vasFontSize));
     
-    % Scale parameters
     scaleWidth = screenWidth * 0.6;
     scaleHeight = 20;
     scaleY = yCenter + 100;
     scaleX1 = xCenter - scaleWidth/2;
     scaleX2 = xCenter + scaleWidth/2;
     
-    % Initialize rating
     vasRating = 50;
     ratingSelected = false;
     
     ShowCursor('Arrow');
     
+    shouldSendTrigger = nargin >= 6 && ~isempty(triggerBox) && ~isempty(startMarkerCode) && ~isempty(submitMarkerCode);
+    if shouldSendTrigger
+        sendTrigger(triggerBox, startMarkerCode);
+    end
+    
     while ~ratingSelected
         [x, y, buttons] = GetMouse(window);
         
-        % Check for ESC key
         [~, ~, keyCode] = KbCheck;
         if keyCode(KbName('ESCAPE'))
             sca;
             error('Experiment terminated by user');
         end
         
-        % Update rating if mouse is near scale
         if y > scaleY - 50 && y < scaleY + 50 && x >= scaleX1 && x <= scaleX2
             vasRating = round((x - scaleX1) / scaleWidth * 100);
             vasRating = max(0, min(100, vasRating));
             
-            % Confirm selection on mouse click
             if buttons(1)
                 ratingSelected = true;
+                if shouldSendTrigger
+                    sendTrigger(triggerBox, submitMarkerCode);
+                end
                 confirmationText = sprintf('You selected: %d', vasRating);
+                Screen('FillRect', window, [0 0 0]);
                 DrawFormattedText(window, confirmationText, 'center', 'center', [255 255 255]);
                 Screen('Flip', window);
                 WaitSecs(0.5);
+                break;
             end
         end
         
-        % Draw interface
         Screen('FillRect', window, [0 0 0]);
         Screen('TextSize', window, vasFontSize);
         
         DrawFormattedText(window, 'Please rate your mental state (0-100)', 'center', yCenter - 200, [255 255 255]);
         
-        % Draw scale
         Screen('DrawLine', window, [255 255 255], scaleX1, scaleY, scaleX2, scaleY, 3);
         
-        % Draw ticks
         for i = 0:10:100
             tickX = scaleX1 + (i/100) * scaleWidth;
             Screen('DrawLine', window, [255 255 255], tickX, scaleY - 10, tickX, scaleY + 10, 2);
@@ -323,11 +316,9 @@ function vasRating = getVASRatingMouse(window, xCenter, yCenter)
             end
         end
         
-        % Draw current selection marker
         markerX = scaleX1 + (vasRating/100) * scaleWidth;
         Screen('DrawLine', window, [255 255 255], markerX, scaleY - 30, markerX, scaleY + 30, 4);
         
-        % Show current rating
         ratingText = sprintf('Current rating: %d', vasRating);
         DrawFormattedText(window, ratingText, 'center', scaleY + 100, [255 255 255]);
         
@@ -339,13 +330,18 @@ function vasRating = getVASRatingMouse(window, xCenter, yCenter)
     HideCursor();
 end
 
-function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letters, targetLetter)
+function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letters, targetLetter, triggerBox)
     % EXPERIMENT VERSION
     nTrials = 120;
     nTargets = max(1, round(nTrials * 0.2));
     stimulusTime = 0.5;
     responseTime = 2.5;
     trialDuration = 3.0;
+    
+    if nargin < 6
+        targetLetter = [];
+    end
+    shouldSendTrigger = nargin >= 7 && ~isempty(triggerBox);
     
     % Generate stimulus sequence
     if n == 0
@@ -379,6 +375,11 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
         DrawFormattedText(window, stimuli{trial}, 'center', 'center', [255 255 255]);
         stimOnset = Screen('Flip', window);
         
+        if shouldSendTrigger
+            markerCode = 100 + (n * 10) + double(isTarget(trial));
+            sendTrigger(triggerBox, markerCode);
+        end
+        
         % Combined stimulus display + response window
         responseWindowEnd = stimOnset + stimulusTime + responseTime;
         responseMade = false;
@@ -402,6 +403,9 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
                         responses{trial} = 'LEFT';
                         responseTimes(trial) = GetSecs - stimOnset;
                         correctResponses(trial) = isTarget(trial);
+                        if shouldSendTrigger
+                            sendTrigger(triggerBox, 200 + correctResponses(trial));
+                        end
                     end
                 elseif keyCode(KbName('RightArrow'))
                     if ~responseMade
@@ -409,6 +413,9 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
                         responses{trial} = 'RIGHT';
                         responseTimes(trial) = GetSecs - stimOnset;
                         correctResponses(trial) = ~isTarget(trial);
+                        if shouldSendTrigger
+                            sendTrigger(triggerBox, 210 + correctResponses(trial));
+                        end
                     end
                 end
             end
@@ -538,4 +545,191 @@ function saveBlockData(filename, subjectID, gender, age, blockType, ...
     
     % Append data to file
     writecell(dataToWrite, filename, 'WriteMode', 'append');
+end
+
+function triggerBox = initializeTriggerBox()
+    triggerBox = struct();
+    triggerBox.simulationMode = true;
+    triggerBox.port = [];
+    triggerBox.logFile = 'trigger_markers.log';
+    triggerBox.logFileId = -1;
+
+    headerFileId = fopen(triggerBox.logFile, 'w');
+    if headerFileId == -1
+        error('Unable to create trigger log file: %s', triggerBox.logFile);
+    end
+    fprintf(headerFileId, 'Timestamp,MarkerCode,Description\n');
+    fclose(headerFileId);
+
+    triggerBox.logFileId = fopen(triggerBox.logFile, 'a');
+    if triggerBox.logFileId == -1
+        error('Unable to open trigger log file for appending: %s', triggerBox.logFile);
+    end
+
+    if triggerBox.simulationMode
+        fprintf('\n=== TRIGGER BOX: SIMULATION MODE ===\n');
+        fprintf('Markers will be logged to: %s\n', triggerBox.logFile);
+        fprintf('====================================\n\n');
+    else
+        try
+            portList = serialportlist("available");
+
+            if isempty(portList)
+                warning('No serial ports found. Switching to simulation mode.');
+                triggerBox.simulationMode = true;
+                return;
+            end
+
+            fprintf('Available serial ports:\n');
+            for i = 1:length(portList)
+                fprintf('%d: %s\n', i, char(portList(i)));
+            end
+
+            desiredPortName = 'COM6';
+            availablePorts = cellstr(portList);
+            if any(strcmpi(availablePorts, desiredPortName))
+                portName = desiredPortName;
+            else
+                portName = availablePorts{1};
+                if ~strcmpi(portName, desiredPortName)
+                    fprintf('Desired port %s unavailable. Using %s instead.\n', desiredPortName, portName);
+                end
+            end
+
+            triggerBox.port = serial(portName, 'BaudRate', 115200, 'DataBits', 8, ...
+                'Parity', 'none', 'StopBits', 1, 'Timeout', 1);
+            fopen(triggerBox.port);
+
+            pause(0.5);
+
+            fprintf('\n=== TRIGGER BOX: HARDWARE MODE ===\n');
+            fprintf('Connected to: %s\n', portName);
+            fprintf('Baud rate: 115200\n');
+            fprintf('==================================\n\n');
+        catch ME
+            warning('Failed to initialize hardware: %s\nSwitching to simulation mode.', ME.message);
+            triggerBox.simulationMode = true;
+            if ~isempty(triggerBox.port)
+                try
+                    fclose(triggerBox.port);
+                    delete(triggerBox.port);
+                catch
+                end
+            end
+            triggerBox.port = [];
+        end
+    end
+end
+
+function sendTrigger(triggerBox, markerCode)
+    timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS.FFF');
+    description = getMarkerDescription(markerCode);
+
+    if triggerBox.simulationMode || isempty(triggerBox.port)
+        fprintf('[%s] Marker %d: %s\n', timestamp, markerCode, description);
+    else
+        try
+            fwrite(triggerBox.port, markerCode, 'uint8');
+            pause(0.01);
+            fwrite(triggerBox.port, 0, 'uint8');
+        catch ME
+            warning('Failed to send trigger %d: %s', markerCode, ME.message);
+        end
+    end
+
+    if isfield(triggerBox, 'logFileId') && triggerBox.logFileId ~= -1
+        fprintf(triggerBox.logFileId, '%s,%d,%s\n', timestamp, markerCode, description);
+        try
+            if exist('fflush', 'builtin') || exist('fflush', 'file')
+                fflush(triggerBox.logFileId);
+            else
+                fseek(triggerBox.logFileId, 0, 'cof');
+            end
+        catch
+            % If the environment does not support fflush/fseek, continue without forcing a flush
+        end
+    end
+end
+
+function closeTriggerBox(triggerBox)
+    if ~isstruct(triggerBox) || isempty(triggerBox)
+        return;
+    end
+
+    if ~triggerBox.simulationMode && ~isempty(triggerBox.port)
+        try
+            fwrite(triggerBox.port, 0, 'uint8');
+            pause(0.1);
+            fclose(triggerBox.port);
+            delete(triggerBox.port);
+            fprintf('\nTrigger box connection closed.\n');
+        catch ME
+            warning('Error closing trigger box: %s', ME.message);
+        end
+    else
+        fprintf('\nSimulation mode ended. Markers logged to: %s\n', triggerBox.logFile);
+    end
+
+    if isfield(triggerBox, 'logFileId') && triggerBox.logFileId ~= -1
+        fclose(triggerBox.logFileId);
+    end
+end
+
+function description = getMarkerDescription(markerCode)
+    switch markerCode
+        case 1
+            description = 'Experiment Start';
+        case 10
+            description = 'Block Start: 0-back';
+        case 11
+            description = 'Block Start: 1-back';
+        case 12
+            description = 'Block Start: 2-back';
+        case 20
+            description = 'Block End: 0-back';
+        case 21
+            description = 'Block End: 1-back';
+        case 22
+            description = 'Block End: 2-back';
+        case 30
+            description = 'VAS Start: Baseline';
+        case 31
+            description = 'VAS Submit: Baseline';
+        case 40
+            description = 'VAS Start: Post-block 0-back';
+        case 41
+            description = 'VAS Start: Post-block 1-back';
+        case 42
+            description = 'VAS Start: Post-block 2-back';
+        case 50
+            description = 'VAS Submit: Post-block 0-back';
+        case 51
+            description = 'VAS Submit: Post-block 1-back';
+        case 52
+            description = 'VAS Submit: Post-block 2-back';
+        case 100
+            description = 'Stimulus: 0-back non-target';
+        case 101
+            description = 'Stimulus: 0-back target';
+        case 110
+            description = 'Stimulus: 1-back non-target';
+        case 111
+            description = 'Stimulus: 1-back target';
+        case 120
+            description = 'Stimulus: 2-back non-target';
+        case 121
+            description = 'Stimulus: 2-back target';
+        case 200
+            description = 'Response: LEFT incorrect';
+        case 201
+            description = 'Response: LEFT correct';
+        case 210
+            description = 'Response: RIGHT incorrect';
+        case 211
+            description = 'Response: RIGHT correct';
+        case 255
+            description = 'Experiment End';
+        otherwise
+            description = 'Unknown marker';
+    end
 end

@@ -73,11 +73,20 @@ function triggerBox = initializeTriggerBox()
     triggerBox.simulationMode = true;  % 测试时使用模拟模式
     triggerBox.port = [];
     triggerBox.logFile = 'trigger_markers.log';
+    triggerBox.logFileId = -1;
     
     % 创建/清空日志文件
-    fid = fopen(triggerBox.logFile, 'w');
-    fprintf(fid, 'Timestamp,MarkerCode,Description\n');
-    fclose(fid);
+    headerFileId = fopen(triggerBox.logFile, 'w');
+    if headerFileId == -1
+        error('Unable to create trigger log file: %s', triggerBox.logFile);
+    end
+    fprintf(headerFileId, 'Timestamp,MarkerCode,Description\n');
+    fclose(headerFileId);
+    
+    triggerBox.logFileId = fopen(triggerBox.logFile, 'a');
+    if triggerBox.logFileId == -1
+        error('Unable to open trigger log file for appending: %s', triggerBox.logFile);
+    end
     
     if triggerBox.simulationMode
         fprintf('\n=== TRIGGER BOX: SIMULATION MODE ===\n');
@@ -95,17 +104,23 @@ function triggerBox = initializeTriggerBox()
             
             fprintf('Available serial ports:\n');
             for i = 1:length(portList)
-                fprintf('%d: %s\n', i, portList(i));
+                fprintf('%d: %s\n', i, char(portList(i)));
             end
             
-            portName = portList(1);
+            desiredPortName = 'COM6';
+            availablePorts = cellstr(portList);
+            if any(strcmpi(availablePorts, desiredPortName))
+                portName = desiredPortName;
+            else
+                portName = availablePorts{1};
+                if ~strcmpi(portName, desiredPortName)
+                    fprintf('Desired port %s unavailable. Using %s instead.\n', desiredPortName, portName);
+                end
+            end
             
-            triggerBox.port = serialport(portName, 115200);
-            configureTerminator(triggerBox.port, "CR/LF");
-            triggerBox.port.DataBits = 8;
-            triggerBox.port.Parity = 'none';
-            triggerBox.port.StopBits = 1;
-            triggerBox.port.Timeout = 1;
+            triggerBox.port = serial(portName, 'BaudRate', 115200, 'DataBits', 8, ...
+                'Parity', 'none', 'StopBits', 1, 'Timeout', 1);
+            fopen(triggerBox.port);
             
             pause(0.5);
             
@@ -117,6 +132,13 @@ function triggerBox = initializeTriggerBox()
         catch ME
             warning('Failed to initialize hardware: %s\nSwitching to simulation mode.', ME.message);
             triggerBox.simulationMode = true;
+            if ~isempty(triggerBox.port)
+                try
+                    fclose(triggerBox.port);
+                    delete(triggerBox.port);
+                catch
+                end
+            end
             triggerBox.port = [];
         end
     end
@@ -126,25 +148,28 @@ function sendTrigger(triggerBox, markerCode)
     timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS.FFF');
     description = getMarkerDescription(markerCode);
     
-    if triggerBox.simulationMode
+    if triggerBox.simulationMode || isempty(triggerBox.port)
         fprintf('[%s] Marker %d: %s\n', timestamp, markerCode, description);
-        
-        fid = fopen(triggerBox.logFile, 'a');
-        fprintf(fid, '%s,%d,%s\n', timestamp, markerCode, description);
-        fclose(fid);
-        
     else
         try
-            write(triggerBox.port, uint8(markerCode), 'uint8');
+            fwrite(triggerBox.port, markerCode, 'uint8');
             pause(0.01);
-            write(triggerBox.port, uint8(0), 'uint8');
-            
-            fid = fopen(triggerBox.logFile, 'a');
-            fprintf(fid, '%s,%d,%s\n', timestamp, markerCode, description);
-            fclose(fid);
-            
+            fwrite(triggerBox.port, 0, 'uint8');
         catch ME
             warning('Failed to send trigger %d: %s', markerCode, ME.message);
+        end
+    end
+    
+    if isfield(triggerBox, 'logFileId') && triggerBox.logFileId ~= -1
+        fprintf(triggerBox.logFileId, '%s,%d,%s\n', timestamp, markerCode, description);
+        try
+            if exist('fflush', 'builtin') || exist('fflush', 'file')
+                fflush(triggerBox.logFileId);
+            else
+                fseek(triggerBox.logFileId, 0, 'cof');
+            end
+        catch
+            % If the environment does not support fflush/fseek, continue without forcing a flush
         end
     end
 end
@@ -152,8 +177,9 @@ end
 function closeTriggerBox(triggerBox)
     if ~triggerBox.simulationMode && ~isempty(triggerBox.port)
         try
-            write(triggerBox.port, uint8(0), 'uint8');
+            fwrite(triggerBox.port, 0, 'uint8');
             pause(0.1);
+            fclose(triggerBox.port);
             delete(triggerBox.port);
             fprintf('\nTrigger box connection closed.\n');
         catch ME
@@ -161,6 +187,10 @@ function closeTriggerBox(triggerBox)
         end
     else
         fprintf('\nSimulation mode ended. Markers logged to: %s\n', triggerBox.logFile);
+    end
+    
+    if isfield(triggerBox, 'logFileId') && triggerBox.logFileId ~= -1
+        fclose(triggerBox.logFileId);
     end
 end
 
