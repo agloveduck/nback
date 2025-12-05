@@ -1,14 +1,21 @@
-function nback_practice()
-    triggerBox = [];
+  function nback_pra  ctice()
+    tr  iggerBox = []; 
     try
         % Collect subject information
         subjectInfo = collectSubjectInfo();
         subjectID = subjectInfo.id;
         subjectGender = subjectInfo.gender;
         subjectAge = subjectInfo.age;
+        subjectHandedness = subjectInfo.handedness;
 
-        % Initialize Biosemi Trigger Box (with simulation mode)
-        triggerBox = initializeTriggerBox();
+        % Create subject-specific data directory ./<SubjectID>/
+        dataDir = fullfile(pwd, subjectID);
+        if ~exist(dataDir, 'dir')
+            mkdir(dataDir);
+        end
+
+        % Initialize Biosemi Trigger Box (with simulation mode), log into subject directory
+        triggerBox = initializeTriggerBox(dataDir);
         
         % Initialize Psychtoolbox  
           PsychDefaultSetup(2);   
@@ -38,17 +45,12 @@ function nback_practice()
         % Get screen center
         [xCenter, yCenter] = RectCenter(windowRect);
         
-        % Data storage setup
-        dataDir = './';  % Save to current directory
-        if ~exist(dataDir, 'dir')
-            mkdir(dataDir);
-        end
-        
-        filename = [dataDir subjectID '_nback_practice_data.csv'];
+        % Data storage setup (save into subject-specific directory)
+        filename = fullfile(dataDir, [subjectID '_nback_practice_data.csv']);
         
         % Create file header if file doesn't exist
         if ~exist(filename, 'file')
-            header = {'SubjectID', 'Gender', 'Age', 'BlockType', 'BlockNumber', 'TrialNumber', ...
+            header = {'SubjectID', 'Gender', 'Age', 'Handedness', 'BlockType', 'BlockNumber', 'TrialNumber', ...
                      'Stimulus', 'IsTarget', 'Response', 'RT', 'Correct', 'VAS_Baseline', 'VAS_PostBlock', 'Timestamp'};
             writecell(header, filename);
         end
@@ -148,16 +150,16 @@ function nback_practice()
             Screen('TextSize', window, baseFontSize);  % Restore stimulus font size
             KbWait();
             KbReleaseWait([], 2);
-            
+
+             % Send marker: Block end, each practice block uses a unique code (21–23)
+            blockEndCode = 20 + blockNum;
+            sendTrigger(triggerBox, blockEndCode);
+
             % Collect VAS rating after each block
             vasRating = getVASRatingMouse(window, xCenter, yCenter, triggerBox, 40 + blockType, 50 + blockType);
             
-            % Send marker: Block end, each practice block uses a unique code (21–23)
-            blockEndCode = 20 + blockNum;
-            sendTrigger(triggerBox, blockEndCode);
-            
             % Save data with baseline VAS and post-block VAS
-            saveBlockData(filename, subjectID, subjectGender, subjectAge, ...
+            saveBlockData(filename, subjectID, subjectGender, subjectAge, subjectHandedness, ...
                          blockType, blockNum, blockData, baselineVAS, vasRating);
         end
         
@@ -166,8 +168,8 @@ function nback_practice()
         DrawFormattedText(window, endMessage, 'center', 'center', [255 255 255]);
         Screen('Flip', window);
         
-        % Send marker: Experiment end
-        sendTrigger(triggerBox, 255);
+        % Send marker: Experiment end (90)
+        sendTrigger(triggerBox, 90);
         
         WaitSecs(3);
         
@@ -186,10 +188,10 @@ end
 
 function subjectInfo = collectSubjectInfo()
     % Collect subject information via dialog
-    prompt = {'Subject ID:', 'Gender (M/F):', 'Age:'};
+    prompt = {'Subject ID:', 'Gender (M/F):', 'Age:', 'Handedness (L/R):'};
     dlgtitle = 'Subject Information - PRACTICE';
-    dims = [1 35; 1 35; 1 35];
-    definput = {'PRACTICE', '', ''};
+    dims = [1 35; 1 35; 1 35; 1 35];
+    definput = {'PRACTICE', '', '', 'R'};
     
     answer = inputdlg(prompt, dlgtitle, dims, definput);
     
@@ -203,7 +205,7 @@ function subjectInfo = collectSubjectInfo()
         error('Subject ID cannot be empty.');
     end
     
-    subjectInfo.gender = upper(answer{2});
+    subjectInfo.gender = upper(strtrim(answer{2}));
     if ~ismember(subjectInfo.gender, {'M', 'F'})
         error('Gender must be M or F.');
     end
@@ -211,6 +213,11 @@ function subjectInfo = collectSubjectInfo()
     subjectInfo.age = str2double(answer{3});
     if isnan(subjectInfo.age) || subjectInfo.age <= 0 || subjectInfo.age > 120
         error('Age must be a valid number between 1 and 120.');
+    end
+    
+    subjectInfo.handedness = upper(strtrim(answer{4}));
+    if ~ismember(subjectInfo.handedness, {'L', 'R'})
+        error('Handedness must be L or R.');
     end
 end
 
@@ -429,11 +436,12 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
         stimOnset = Screen('Flip', window);
         
         % Send marker: Stimulus onset
-        % Marker code: 100 + (n*10) + isTarget
-        % 0-back non-target: 100, 0-back target: 101
-        % 1-back non-target: 110, 1-back target: 111
-        % 2-back non-target: 120, 2-back target: 121
-        markerCode = 100 + (n * 10) + isTarget(trial);
+        % Marker code in 60–65 (per n-back level × target/non-target)
+        % 0-back non-target: 60, 0-back target: 61
+        % 1-back non-target: 62, 1-back target: 63
+        % 2-back non-target: 64, 2-back target: 65
+        stimBaseCode = 60 + 2 * n;           % n = 0/1/2 → 60/62/64
+        markerCode = stimBaseCode + isTarget(trial);
         if shouldSendTrigger
             sendTrigger(triggerBox, markerCode);
         end
@@ -464,7 +472,8 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
                         responseTimes(trial) = GetSecs - stimOnset;
                         correctResponses(trial) = isTarget(trial);
                         if shouldSendTrigger
-                            sendTrigger(triggerBox, 200 + correctResponses(trial));
+                            % 70=LEFT incorrect, 71=LEFT correct
+                            sendTrigger(triggerBox, 70 + correctResponses(trial));
                         end
                     end
                 elseif keyCode(rightArrowKeyCode)
@@ -474,7 +483,8 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
                         responseTimes(trial) = GetSecs - stimOnset;
                         correctResponses(trial) = ~isTarget(trial);
                         if shouldSendTrigger
-                            sendTrigger(triggerBox, 210 + correctResponses(trial));
+                            % 72=RIGHT incorrect, 73=RIGHT correct
+                            sendTrigger(triggerBox, 72 + correctResponses(trial));
                         end
                     end
                 else
@@ -496,7 +506,8 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
                         responseTimes(trial) = GetSecs - stimOnset;
                         correctResponses(trial) = 0;
                         if shouldSendTrigger
-                            sendTrigger(triggerBox, 220);
+                            % 74 = Invalid key
+                            sendTrigger(triggerBox, 74);
                         end
                     end
                 end
@@ -504,14 +515,15 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
         end
         
         % If no response was made, mark as incorrect
-        if ~responseMade
-            responses{trial} = 'NONE';
-            correctResponses(trial) = 0;
-            if shouldSendTrigger
-                sendTrigger(triggerBox, 221);
+            if ~responseMade
+                responses{trial} = 'NONE';
+                correctResponses(trial) = 0;
+                if shouldSendTrigger
+                    % 75 = No response
+                    sendTrigger(triggerBox, 75);
+                end
             end
-        end
-        
+
         % Wait until fixed trial duration is reached
         trialEndTime = trialStartTime + trialDuration;
         while GetSecs < trialEndTime
@@ -600,34 +612,35 @@ function [stimuli, isTarget] = generateStimulusSequence(letters, nTrials, nTarge
     end
 end
 
-function saveBlockData(filename, subjectID, gender, age, blockType, ...
+function saveBlockData(filename, subjectID, gender, age, handedness, blockType, ...
                       blockNum, blockData, vasBaseline, vasPostBlock)
     % Save data function
     
     nTrials = length(blockData.stimuli);
     timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS');
     
-    dataToWrite = cell(nTrials, 14);
+    dataToWrite = cell(nTrials, 15);
     
     for trial = 1:nTrials
         dataToWrite{trial, 1} = subjectID;
         dataToWrite{trial, 2} = gender;
         dataToWrite{trial, 3} = age;
-        dataToWrite{trial, 4} = blockType;
-        dataToWrite{trial, 5} = blockNum;
-        dataToWrite{trial, 6} = trial;
-        dataToWrite{trial, 7} = blockData.stimuli{trial};
-        dataToWrite{trial, 8} = blockData.isTarget(trial);
-        dataToWrite{trial, 9} = blockData.responses{trial};
+        dataToWrite{trial, 4} = handedness;
+        dataToWrite{trial, 5} = blockType;
+        dataToWrite{trial, 6} = blockNum;
+        dataToWrite{trial, 7} = trial;
+        dataToWrite{trial, 8} = blockData.stimuli{trial};
+        dataToWrite{trial, 9} = blockData.isTarget(trial);
+        dataToWrite{trial, 10} = blockData.responses{trial};
         if isnan(blockData.responseTimes(trial))
-            dataToWrite{trial, 10} = 'NaN';
+            dataToWrite{trial, 11} = 'NaN';
         else
-            dataToWrite{trial, 10} = blockData.responseTimes(trial);
+            dataToWrite{trial, 11} = blockData.responseTimes(trial);
         end
-        dataToWrite{trial, 11} = blockData.correctResponses(trial);
-        dataToWrite{trial, 12} = vasBaseline;  % Baseline VAS (collected before experiment)
-        dataToWrite{trial, 13} = vasPostBlock;  % Post-block VAS (collected after this block)
-        dataToWrite{trial, 14} = timestamp;
+        dataToWrite{trial, 12} = blockData.correctResponses(trial);
+        dataToWrite{trial, 13} = vasBaseline;  % Baseline VAS (collected before experiment)
+        dataToWrite{trial, 14} = vasPostBlock;  % Post-block VAS (collected after this block)
+        dataToWrite{trial, 15} = timestamp;
     end
     
     % Append data to file   
@@ -636,14 +649,21 @@ end
 
 %% ========== BIOSEMI TRIGGER BOX FUNCTIONS ==========
 
-function triggerBox = initializeTriggerBox()
+function triggerBox = initializeTriggerBox(dataDir)
     % Initialize Biosemi Trigger Interface Box
     % Supports both real hardware and simulation mode
+    
+    if nargin < 1 || isempty(dataDir)
+        dataDir = pwd;
+    end
+    if ~exist(dataDir, 'dir')
+        mkdir(dataDir);
+    end
     
     triggerBox = struct();
     triggerBox.simulationMode = false;  % Set to false when using real hardware
     triggerBox.port = [];
-    triggerBox.logFile = 'trigger_markers.log';
+    triggerBox.logFile = fullfile(dataDir, 'trigger_markers.log');
     triggerBox.logFileId = -1;
     
     % Create/clear log file
@@ -820,31 +840,31 @@ function description = getMarkerDescription(markerCode)
             description = 'VAS Submit: Post-block 1-back';
         case 52
             description = 'VAS Submit: Post-block 2-back';
-        case 100
+        case 60
             description = 'Stimulus: 0-back non-target';
-        case 101
+        case 61
             description = 'Stimulus: 0-back target';
-        case 110
+        case 62
             description = 'Stimulus: 1-back non-target';
-        case 111
+        case 63
             description = 'Stimulus: 1-back target';
-        case 120
+        case 64
             description = 'Stimulus: 2-back non-target';
-        case 121
+        case 65
             description = 'Stimulus: 2-back target';
-        case 200
+        case 70
             description = 'Response: LEFT incorrect';
-        case 201
+        case 71
             description = 'Response: LEFT correct';
-        case 210
+        case 72
             description = 'Response: RIGHT incorrect';
-        case 211
+        case 73
             description = 'Response: RIGHT correct';
-        case 220
+        case 74
             description = 'Response: Invalid key';
-        case 221
+        case 75
             description = 'Response: No response';
-        case 255
+        case 90
             description = 'Experiment End';
         otherwise
             description = 'Unknown marker';

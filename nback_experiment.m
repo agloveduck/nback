@@ -154,14 +154,15 @@
                 blockData = runNbackBlockExperiment(window, xCenter, yCenter, blockType, letters, [], triggerBox);
             end
             
-            % ========= block 后 VAS 评分（疲劳程度） =========
-            % startMarker = 40/41/42，submitMarker = 50/51/52
-            vasRating = getVASRatingMouse(window, xCenter, yCenter, triggerBox, 40 + blockType, 50 + blockType);
-            
             % ========= 发送 block 结束 marker =========
             % 每个 block 使用不同的编码（Block 1–9: 21–29）
             blockEndCode = 20 + blockNum;
             sendTrigger(triggerBox, blockEndCode);
+
+            % ========= block 后 VAS 评分（疲劳程度） =========
+            % startMarker = 40/41/42，submitMarker = 50/51/52
+            vasRating = getVASRatingMouse(window, xCenter, yCenter, triggerBox, 40 + blockType, 50 + blockType);
+            
             
             % ========= 将该 block 的所有 trial 数据写入 CSV =========
             saveBlockData(filename, subjectID, subjectGender, subjectAge, subjectHandedness, ...
@@ -173,8 +174,8 @@
         DrawFormattedText(window, endMessage, 'center', 'center', [255 255 255]);
         Screen('Flip', window);
         
-        % 发送“实验结束” marker：255
-        sendTrigger(triggerBox, 255);
+        % 发送“实验结束” marker：90
+        sendTrigger(triggerBox, 90);
         
         WaitSecs(3);
         
@@ -465,9 +466,10 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
         DrawFormattedText(window, stimuli{trial}, 'center', 'center', [255 255 255]);
         stimOnset = Screen('Flip', window);  % 记录刺激呈现时间
         
-        % 发送刺激 marker：100/101/110/111/120/121
+        % 发送刺激 marker：0-back/1-back/2-back × 非目标/目标 → 6 个码（60–65）
         if shouldSendTrigger
-            markerCode = 100 + (n * 10) + double(isTarget(trial));
+            stimBaseCode = 60 + 2 * n;           % n = 0/1/2 → 60/62/64
+            markerCode = stimBaseCode + double(isTarget(trial));
             sendTrigger(triggerBox, markerCode);
         end
         
@@ -499,8 +501,8 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
                         % 正确性：target trial 按 LEFT 才是正确
                         correctResponses(trial) = isTarget(trial);
                         if shouldSendTrigger
-                            % 200=LEFT incorrect, 201=LEFT correct
-                            sendTrigger(triggerBox, 200 + correctResponses(trial));
+                            % 70=LEFT incorrect, 71=LEFT correct
+                            sendTrigger(triggerBox, 70 + correctResponses(trial));
                         end
                     end
                 elseif keyCode(rightArrowKeyCode)
@@ -512,8 +514,8 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
                         % 非 target trial 按 RIGHT 才是正确
                         correctResponses(trial) = ~isTarget(trial);
                         if shouldSendTrigger
-                            % 210=RIGHT incorrect, 211=RIGHT correct
-                            sendTrigger(triggerBox, 210 + correctResponses(trial));
+                            % 72=RIGHT incorrect, 73=RIGHT correct
+                            sendTrigger(triggerBox, 72 + correctResponses(trial));
                         end
                     end
                 else
@@ -537,8 +539,8 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
                         responseTimes(trial) = GetSecs - stimOnset;
                         correctResponses(trial) = 0;
                         if shouldSendTrigger
-                            % 220 = Invalid key
-                            sendTrigger(triggerBox, 220);
+                            % 74 = Invalid key
+                            sendTrigger(triggerBox, 74);
                         end
                     end
                 end
@@ -550,8 +552,8 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
             responses{trial} = 'NONE';
             correctResponses(trial) = 0;
             if shouldSendTrigger
-                % 221 = No response
-                sendTrigger(triggerBox, 221);
+                % 75 = No response
+                sendTrigger(triggerBox, 75);
             end
         end
         
@@ -847,7 +849,7 @@ function closeTriggerBox(triggerBox)
             delete(triggerBox.port);
             fprintf('\nTrigger box connection closed.\n');
         catch ME
-            warning('Error closing trigger box: %s', ME.message);
+            warning('Error closing trigger box: %s',   ME.message);
         end
     else
         fprintf('\nSimulation mode ended. Markers logged to: %s\n', triggerBox.logFile);
@@ -918,31 +920,31 @@ function description = getMarkerDescription(markerCode)
             description = 'VAS Submit: Post-block 1-back';
         case 52
             description = 'VAS Submit: Post-block 2-back';
-        case 100
+        case 60
             description = 'Stimulus: 0-back non-target';
-        case 101
+        case 61
             description = 'Stimulus: 0-back target';
-        case 110
+        case 62
             description = 'Stimulus: 1-back non-target';
-        case 111
+        case 63
             description = 'Stimulus: 1-back target';
-        case 120
+        case 64
             description = 'Stimulus: 2-back non-target';
-        case 121
+        case 65
             description = 'Stimulus: 2-back target';
-        case 200
+        case 70
             description = 'Response: LEFT incorrect';
-        case 201
+        case 71
             description = 'Response: LEFT correct';
-        case 210
+        case 72
             description = 'Response: RIGHT incorrect';
-        case 211
+        case 73
             description = 'Response: RIGHT correct';
-        case 220
+        case 74
             description = 'Response: Invalid key';
-        case 221
+        case 75
             description = 'Response: No response';
-        case 255
+        case 90
             description = 'Experiment End';
         otherwise
             description = 'Unknown marker';
