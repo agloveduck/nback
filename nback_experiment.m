@@ -1,13 +1,13 @@
-        function nback_experiment()
+          function nback_experiment()
     triggerBox = [];
     try
-        % Collect subject information
+        % Col  lect subject information
         subjectInfo = collectSubjectInfo();
-        subjectID = subjectInfo.id;
+        su  bjectID = subjectInfo.id;
         subjectGender = subjectInfo.gender;
-        subjectAge = subjectInfo.age;
+          subjectAge = subjectInfo.age;
         
-        % Initialize Biosemi trigger box
+        % Initialize Biosemi trigger b ox  
         triggerBox = initializeTriggerBox();
         
         % Initialize Psychtoolbox
@@ -43,7 +43,7 @@
             mkdir(dataDir);
         end
         
-        filename = [dataDir subjectID '_nback_data.csv'];
+        filename = [dataDir subjectID '_expnback_data.csv'];
         
         % Create file header if file doesn't exist
         if ~exist(filename, 'file')
@@ -342,6 +342,8 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
         targetLetter = [];
     end
     shouldSendTrigger = nargin >= 7 && ~isempty(triggerBox);
+    leftArrowKeyCode = KbName('LeftArrow');
+    rightArrowKeyCode = KbName('RightArrow');
     
     % Generate stimulus sequence
     if n == 0
@@ -397,7 +399,7 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
                 if keyCode(KbName('ESCAPE'))
                     sca;
                     error('Experiment terminated by user');
-                elseif keyCode(KbName('LeftArrow'))
+                elseif keyCode(leftArrowKeyCode)
                     if ~responseMade
                         responseMade = true;
                         responses{trial} = 'LEFT';
@@ -407,7 +409,7 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
                             sendTrigger(triggerBox, 200 + correctResponses(trial));
                         end
                     end
-                elseif keyCode(KbName('RightArrow'))
+                elseif keyCode(rightArrowKeyCode)
                     if ~responseMade
                         responseMade = true;
                         responses{trial} = 'RIGHT';
@@ -417,13 +419,38 @@ function blockData = runNbackBlockExperiment(window, xCenter, yCenter, n, letter
                             sendTrigger(triggerBox, 210 + correctResponses(trial));
                         end
                     end
+                else
+                    if ~responseMade
+                        responseMade = true;
+                        pressedKeyIndex = find(keyCode, 1);
+                        pressedKeyName = KbName(pressedKeyIndex);
+                        if iscell(pressedKeyName)
+                            pressedKeyName = pressedKeyName{1};
+                        end
+                        if isa(pressedKeyName, 'string')
+                            pressedKeyName = char(pressedKeyName);
+                        end
+                        sanitizedKeyName = 'UNKNOWN';
+                        if ischar(pressedKeyName)
+                            sanitizedKeyName = upper(strrep(pressedKeyName, ' ', '_'));
+                        end
+                        responses{trial} = ['INVALID_' sanitizedKeyName];
+                        responseTimes(trial) = GetSecs - stimOnset;
+                        correctResponses(trial) = 0;
+                        if shouldSendTrigger
+                            sendTrigger(triggerBox, 220);
+                        end
+                    end
                 end
             end
         end
         
         if ~responseMade
-            responses{trial} = '';
+            responses{trial} = 'NONE';
             correctResponses(trial) = 0;
+            if shouldSendTrigger
+                sendTrigger(triggerBox, 221);
+            end
         end
         
         % Wait until fixed trial duration is reached
@@ -549,9 +576,9 @@ end
 
 function triggerBox = initializeTriggerBox()
     triggerBox = struct();
-    triggerBox.simulationMode = true;
+    triggerBox.simulationMode = false;
     triggerBox.port = [];
-    triggerBox.logFile = 'trigger_markers.log';
+    triggerBox.logFile = 'exptrigger_markers.log';
     triggerBox.logFileId = -1;
 
     headerFileId = fopen(triggerBox.logFile, 'w');
@@ -727,6 +754,10 @@ function description = getMarkerDescription(markerCode)
             description = 'Response: RIGHT incorrect';
         case 211
             description = 'Response: RIGHT correct';
+        case 220
+            description = 'Response: Invalid key';
+        case 221
+            description = 'Response: No response';
         case 255
             description = 'Experiment End';
         otherwise

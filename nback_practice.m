@@ -14,7 +14,7 @@ function nback_practice()
           PsychDefaultSetup(2);   
         Screen('Preference', 'SkipSyncTests', 1);
         
-        % Screen setup
+        % Screen setup、
         screenNumber = max(Screen('Screens'));
         [window, windowRect] = Screen('OpenWindow', screenNumber, [0 0 0]);
         
@@ -392,6 +392,10 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
     responseTime = 2.5;  % Response window duration
     trialDuration = 3.0;  % Fixed total duration per trial (3 seconds)
     
+    shouldSendTrigger = nargin >= 7 && ~isempty(triggerBox);
+    leftArrowKeyCode = KbName('LeftArrow');
+    rightArrowKeyCode = KbName('RightArrow');
+    
     % Generate stimulus sequence
     if n == 0
         [stimuli, isTarget] = generateStimulusSequence(letters, nTrials, nTargets, n, targetLetter);
@@ -400,7 +404,7 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
     end
     
     % Initialize response data
-    responses = cell(1, nTrials);  % Store 'A', 'L', or empty
+    responses = cell(1, nTrials);  % Store recorded key labels for each trial
     responseTimes = nan(1, nTrials);
     correctResponses = zeros(1, nTrials);
     
@@ -430,7 +434,9 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
         % 1-back non-target: 110, 1-back target: 111
         % 2-back non-target: 120, 2-back target: 121
         markerCode = 100 + (n * 10) + isTarget(trial);
-        sendTrigger(triggerBox, markerCode);
+        if shouldSendTrigger
+            sendTrigger(triggerBox, markerCode);
+        end
         
         % Combined stimulus display + response window
         responseWindowEnd = stimOnset + stimulusTime + responseTime;
@@ -451,27 +457,47 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
                 if keyCode(KbName('ESCAPE'))
                     sca;
                     error('Experiment terminated by user');
-                elseif keyCode(KbName('LeftArrow'))
+                elseif keyCode(leftArrowKeyCode)
                     if ~responseMade
                         responseMade = true;
                         responses{trial} = 'LEFT';
                         responseTimes(trial) = GetSecs - stimOnset;
-                        % Check if correct (LEFT for target)
                         correctResponses(trial) = isTarget(trial);
-                        % Send marker: Response LEFT (200 + correct/incorrect)
-                        sendTrigger(triggerBox, 200 + correctResponses(trial));
-                        % Don't break - keep looping to ensure screen clears at 0.5s
+                        if shouldSendTrigger
+                            sendTrigger(triggerBox, 200 + correctResponses(trial));
+                        end
                     end
-                elseif keyCode(KbName('RightArrow'))
+                elseif keyCode(rightArrowKeyCode)
                     if ~responseMade
                         responseMade = true;
                         responses{trial} = 'RIGHT';
                         responseTimes(trial) = GetSecs - stimOnset;
-                        % Check if correct (RIGHT for non-target)
                         correctResponses(trial) = ~isTarget(trial);
-                        % Send marker: Response RIGHT (210 + correct/incorrect)
-                        sendTrigger(triggerBox, 210 + correctResponses(trial));
-                        % Don't break - keep looping to ensure screen clears at 0.5s
+                        if shouldSendTrigger
+                            sendTrigger(triggerBox, 210 + correctResponses(trial));
+                        end
+                    end
+                else
+                    if ~responseMade
+                        responseMade = true;
+                        pressedKeyIndex = find(keyCode, 1);
+                        pressedKeyName = KbName(pressedKeyIndex);
+                        if iscell(pressedKeyName)
+                            pressedKeyName = pressedKeyName{1};
+                        end
+                        if isa(pressedKeyName, 'string')
+                            pressedKeyName = char(pressedKeyName);
+                        end
+                        sanitizedKeyName = 'UNKNOWN';
+                        if ischar(pressedKeyName)
+                            sanitizedKeyName = upper(strrep(pressedKeyName, ' ', '_'));
+                        end
+                        responses{trial} = ['INVALID_' sanitizedKeyName];
+                        responseTimes(trial) = GetSecs - stimOnset;
+                        correctResponses(trial) = 0;
+                        if shouldSendTrigger
+                            sendTrigger(triggerBox, 220);
+                        end
                     end
                 end
             end
@@ -479,8 +505,11 @@ function blockData = runNbackBlockPractice(window, xCenter, yCenter, n, letters,
         
         % If no response was made, mark as incorrect
         if ~responseMade
-            responses{trial} = '';
+            responses{trial} = 'NONE';
             correctResponses(trial) = 0;
+            if shouldSendTrigger
+                sendTrigger(triggerBox, 221);
+            end
         end
         
         % Wait until fixed trial duration is reached
@@ -811,6 +840,10 @@ function description = getMarkerDescription(markerCode)
             description = 'Response: RIGHT incorrect';
         case 211
             description = 'Response: RIGHT correct';
+        case 220
+            description = 'Response: Invalid key';
+        case 221
+            description = 'Response: No response';
         case 255
             description = 'Experiment End';
         otherwise
