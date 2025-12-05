@@ -89,8 +89,9 @@ function nback_practice()
         for blockNum = 1:length(blockTypes)
             blockType = blockTypes(blockNum);
             
-            % Send marker: Block start (10 + blockType, e.g., 10, 11, 12 for 0-back, 1-back, 2-back)
-            sendTrigger(triggerBox, 10 + blockType);
+            % Send marker: Block start, each practice block uses a unique code (11–13)
+            blockStartCode = 10 + blockNum;
+            sendTrigger(triggerBox, blockStartCode);
             
             % Block instructions with increased line spacing
             Screen('TextSize', window, instructionFontSize);
@@ -151,8 +152,9 @@ function nback_practice()
             % Collect VAS rating after each block
             vasRating = getVASRatingMouse(window, xCenter, yCenter, triggerBox, 40 + blockType, 50 + blockType);
             
-            % Send marker: Block end (20 + blockType)
-            sendTrigger(triggerBox, 20 + blockType);
+            % Send marker: Block end, each practice block uses a unique code (21–23)
+            blockEndCode = 20 + blockNum;
+            sendTrigger(triggerBox, blockEndCode);
             
             % Save data with baseline VAS and post-block VAS
             saveBlockData(filename, subjectID, subjectGender, subjectAge, ...
@@ -790,18 +792,18 @@ function description = getMarkerDescription(markerCode)
     switch markerCode
         case 1
             description = 'Experiment Start';
-        case 10
-            description = 'Block Start: 0-back';
         case 11
-            description = 'Block Start: 1-back';
+            description = 'Practice Block 1 Start: 0-back';
         case 12
-            description = 'Block Start: 2-back';
-        case 20
-            description = 'Block End: 0-back';
+            description = 'Practice Block 2 Start: 1-back';
+        case 13
+            description = 'Practice Block 3 Start: 2-back';
         case 21
-            description = 'Block End: 1-back';
+            description = 'Practice Block 1 End: 0-back';
         case 22
-            description = 'Block End: 2-back';
+            description = 'Practice Block 2 End: 1-back';
+        case 23
+            description = 'Practice Block 3 End: 2-back';
         case 30
             description = 'VAS Start: Baseline';
         case 31

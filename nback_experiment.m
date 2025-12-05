@@ -111,8 +111,9 @@
         for blockNum = 1:length(blockTypes)
             blockType = blockTypes(blockNum);   % 0 / 1 / 2
             
-            % 发送 block 开始 marker：0-back(10), 1-back(11), 2-back(12)
-            sendTrigger(triggerBox, 10 + blockType);
+            % 发送 block 开始 marker：每个 block 使用不同的编码（Block 1–9: 11–19）
+            blockStartCode = 10 + blockNum;
+            sendTrigger(triggerBox, blockStartCode);
             
             % ========= Block 说明 =========
             Screen('TextSize', window, instructionFontSize);
@@ -158,8 +159,9 @@
             vasRating = getVASRatingMouse(window, xCenter, yCenter, triggerBox, 40 + blockType, 50 + blockType);
             
             % ========= 发送 block 结束 marker =========
-            % 0-back(20), 1-back(21), 2-back(22)
-            sendTrigger(triggerBox, 20 + blockType);
+            % 每个 block 使用不同的编码（Block 1–9: 21–29）
+            blockEndCode = 20 + blockNum;
+            sendTrigger(triggerBox, blockEndCode);
             
             % ========= 将该 block 的所有 trial 数据写入 CSV =========
             saveBlockData(filename, subjectID, subjectGender, subjectAge, subjectHandedness, ...
@@ -864,18 +866,42 @@ function description = getMarkerDescription(markerCode)
     switch markerCode
         case 1
             description = 'Experiment Start';
-        case 10
-            description = 'Block Start: 0-back';
         case 11
-            description = 'Block Start: 1-back';
+            description = 'Block 1 Start: 0-back';
         case 12
-            description = 'Block Start: 2-back';
-        case 20
-            description = 'Block End: 0-back';
+            description = 'Block 2 Start: 0-back';
+        case 13
+            description = 'Block 3 Start: 0-back';
+        case 14
+            description = 'Block 4 Start: 1-back';
+        case 15
+            description = 'Block 5 Start: 1-back';
+        case 16
+            description = 'Block 6 Start: 1-back';
+        case 17
+            description = 'Block 7 Start: 2-back';
+        case 18
+            description = 'Block 8 Start: 2-back';
+        case 19
+            description = 'Block 9 Start: 2-back';
         case 21
-            description = 'Block End: 1-back';
+            description = 'Block 1 End: 0-back';
         case 22
-            description = 'Block End: 2-back';
+            description = 'Block 2 End: 0-back';
+        case 23
+            description = 'Block 3 End: 0-back';
+        case 24
+            description = 'Block 4 End: 1-back';
+        case 25
+            description = 'Block 5 End: 1-back';
+        case 26
+            description = 'Block 6 End: 1-back';
+        case 27
+            description = 'Block 7 End: 2-back';
+        case 28
+            description = 'Block 8 End: 2-back';
+        case 29
+            description = 'Block 9 End: 2-back';
         case 30
             description = 'VAS Start: Baseline';
         case 31
